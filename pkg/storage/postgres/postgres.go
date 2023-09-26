@@ -3,8 +3,8 @@ package postgres
 import (
 	"context"
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/zatrasz75/Service/pkg/logger"
 	"github.com/zatrasz75/Service/pkg/storage"
-	"log"
 	"time"
 )
 
@@ -41,7 +41,7 @@ func (s *Store) CreateDataTable() error {
 
 	_, err := s.db.Exec(context.Background(), qwery)
 	if err != nil {
-		log.Printf("не удалось создать таблицу service_data %s", err)
+		logger.Error("не удалось создать таблицу service_data %s", err)
 		return err
 	}
 

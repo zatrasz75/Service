@@ -29,22 +29,13 @@ func init() {
 
 func main() {
 	connstr := postgresDB()
-	fmt.Println(connstr)
-
-	//db, err := postgres.New(connstr)
-	//if err != nil {
-	//	log.Fatal("нет соединения с PostgresSQL", err)
-	//}
-	//err = db.CreateDataTable()
-	//if err != nil {
-	//	log.Fatal("не удалось создать таблицу session_token", err)
-	//}
 
 	brokers := []string{"localhost:9092"}
-	topic := "my-topic"
-	groupID := "my-group"
+	topic := "FIO"
+	topicErr := "FIO_FAILED"
+	groupID := "FIO"
 
-	service.Start(brokers, topic, groupID, connstr)
+	service.Start(brokers, topic, topicErr, groupID, connstr)
 
 }
 
