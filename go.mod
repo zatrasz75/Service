@@ -3,6 +3,7 @@ module github.com/zatrasz75/Service
 go 1.21.1
 
 require (
+	github.com/gorilla/mux v1.8.0
 	github.com/jackc/pgx/v4 v4.18.1
 	github.com/joho/godotenv v1.5.1
 	github.com/segmentio/kafka-go v0.4.42
