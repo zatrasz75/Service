@@ -32,4 +32,4 @@ volumes:
     driver: local
 
 
-# docker-compose up
+# docker-compose up -в

@@ -66,7 +66,7 @@ func (api *API) Run() error {
 		WriteTimeout: cfg.Server.WriteTimeout,
 		IdleTimeout:  cfg.Server.IdleTimeout,
 	}
-	logger.Info("Запуск сервера на http://" + api.srv.Addr)
+	logger.Info("Запуск сервера на http://" + api.srv.Addr + "/data")
 
 	go func() {
 		err := api.srv.ListenAndServe()

@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/segmentio/kafka-go"
-	"github.com/zatrasz75/Service/configs"
 	"github.com/zatrasz75/Service/pkg/logger"
 	"github.com/zatrasz75/Service/pkg/storage"
 	"github.com/zatrasz75/Service/pkg/storage/postgres"
 	"regexp"
 	"sync"
-	"time"
 )
 
 // Client — клиент Kafka.
@@ -29,9 +28,8 @@ type Client struct {
 
 // New создаёт и инициализирует клиента Kafka.
 // Функция-конструктор.
-func New() (*Client, error) {
-	cfg := configs.New()
-	if len(cfg.Kafka.Brokers) == 0 || cfg.Kafka.Topic == "" || cfg.Kafka.GroupID == "" || cfg.Kafka.TopicErr == "" {
+func New(brokers []string, topic string, topicErr string, groupId string) (*Client, error) {
+	if len(brokers) == 0 || topic == "" || groupId == "" || topicErr == "" {
 		return nil, errors.New("не указаны параметры подключения к Kafka")
 	}
 
@@ -39,50 +37,36 @@ func New() (*Client, error) {
 
 	// Инициализация компонента получения сообщений.
 	c.Reader = kafka.NewReader(kafka.ReaderConfig{
-		Brokers:  cfg.Kafka.Brokers,
-		Topic:    cfg.Kafka.Topic,
-		GroupID:  cfg.Kafka.GroupID,
+		Brokers:  brokers,
+		Topic:    topic,
+		GroupID:  groupId,
 		MinBytes: 10e1,
 		MaxBytes: 10e6,
 	})
 	// Сохраняем адрес брокера.
-	c.Broker = cfg.Kafka.Brokers[0]
+	c.Broker = brokers[0]
 
 	// Инициализация компонента отправки сообщений в топик FIO.
 	c.Writer = &kafka.Writer{
-		Addr:     kafka.TCP(cfg.Kafka.Brokers[0]),
-		Topic:    cfg.Kafka.Topic,
+		Addr:     kafka.TCP(brokers[0]),
+		Topic:    topic,
 		Balancer: &kafka.LeastBytes{},
 	}
 	// Инициализация компонента отправки сообщений в топик FIO_FAILED.
 	c.ErrorWriter = &kafka.Writer{
-		Addr:     kafka.TCP(cfg.Kafka.Brokers[0]),
-		Topic:    cfg.Kafka.TopicErr,
+		Addr:     kafka.TCP(brokers[0]),
+		Topic:    topicErr,
 		Balancer: &kafka.LeastBytes{},
 	}
 
 	return &c, nil
 }
 
-// sendMessages отправляет сообщения в Kafka.
-func (c *Client) sendMessages(messages []byte) error {
-	kafkaMessage := kafka.Message{
-		Value: messages,
-	}
-
-	err := c.Writer.WriteMessages(context.Background(), kafkaMessage)
-	if err != nil {
-		logger.Error("Ошибка отправки сообщения: %v\n", err)
-	}
-
-	return err
-}
-
 // sendErrorMessage отправляет сообщение с ошибкой в очередь FIO_FAILED.
 func (c *Client) sendErrorMessage(msg kafka.Message, errorTopic string, fio storage.Data) error {
 	var r storage.Data
 	if err := json.Unmarshal(msg.Value, &r); err != nil {
-		logger.Error("Ошибка разбора JSON: %v\n", err)
+		logger.Error("Ошибка разбора JSON: ", err)
 	}
 	r.Name = fio.Name
 	r.Surname = fio.Surname
@@ -138,7 +122,7 @@ func (c *Client) fetchProcessCommit(db storage.Database) error {
 	for {
 		msg, err := c.Reader.FetchMessage(context.Background())
 		if err != nil {
-			logger.Error("Ошибка получения сообщения из Kafka: %v\n", err)
+			logger.Error("Ошибка получения сообщения из Kafka: ", err)
 			return err
 		}
 
@@ -149,14 +133,9 @@ func (c *Client) fetchProcessCommit(db storage.Database) error {
 		}
 		_, err = validateAndEnrichMessage(r)
 		if err != nil {
-			//fmt.Printf("Имя: %s\n", r.Name)
-			//fmt.Printf("Фамилия: %s\n", r.Surname)
-			//fmt.Printf("Отчество: %s\n", r.Patronymic)
-			//fmt.Printf("Лет: %s\n", r.Age)
-			//fmt.Printf("Пол: %s\n", r.Gender)
-			//fmt.Printf("Национальность: %s\n", r.Nationality)
-			//fmt.Printf("UpsErr: %s\n", r.Err)
+			// отправляем сообщение с ошибкой в FIO_FAILED
 			r.Err = err.Error()
+			fmt.Println(r.Err)
 			err = c.sendErrorMessage(msg, "FIO_FAILED", r)
 		} else {
 			var wg sync.WaitGroup
@@ -192,15 +171,7 @@ func (c *Client) fetchProcessCommit(db storage.Database) error {
 
 			wg.Wait()
 
-			//fmt.Printf("Имя: %s\n", r.Name)
-			//fmt.Printf("Фамилия: %s\n", r.Surname)
-			//fmt.Printf("Отчество: %s\n", r.Patronymic)
-			//fmt.Printf("Лет: %d\n", r.Age)
-			//fmt.Printf("Пол: %s\n", r.Gender)
-			//fmt.Printf("Национальность: %s\n", r.Nationality)
-			//
-			//fmt.Printf("Err: %s\n", r.Err)
-
+			// сохраняем обогащенные данные в базу
 			_, err = db.SaveDataToDatabase(r)
 			if err != nil {
 				logger.Error("не получилось сохранить данные в базу данных", err)
@@ -214,47 +185,20 @@ func (c *Client) fetchProcessCommit(db storage.Database) error {
 	}
 }
 
-func Start() {
-	cfg := configs.New()
+func Start(brokers []string, topic, topicErr, groupID, connstr string) error {
 	// Инициализация клиента Kafka.
-	kfk, err := New()
+	kfk, err := New(brokers, topic, topicErr, groupID)
 	if err != nil {
-		logger.Fatal("не удалось запустить сервис", err)
+		logger.Error("не удалось запустить сервис", err)
+		return err
 	}
 
 	// Инициализация базы данных.
-	db, err := postgres.New(cfg.DataBase.ConnStr)
+	db, err := postgres.New(connstr)
 	if err != nil {
-		logger.Fatal("нет соединения с PostgresSQL", err)
+		logger.Error("нет соединения с PostgresSQL", err)
+		return err
 	}
-	err = db.CreateDataTable()
-	if err != nil {
-		logger.Fatal("не удалось создать таблицу session_token", err)
-	}
-
-	data := storage.Data{
-		Name:       "Михаил",
-		Surname:    "Токмачев",
-		Patronymic: "Владимирович",
-		//Age:         "48",
-		//Gender:      "Мужской",
-		//Nationality: "Русский",
-	}
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		logger.Error("Ошибка маршалирования JSON: %v\n", err)
-		return
-	}
-
-	// Отправка сообщения.
-	go func() {
-		for range time.Tick(time.Second * 5) {
-			err = kfk.sendMessages(jsonData)
-			if err != nil {
-				logger.Error("не удалось отправить сообщение", err)
-			}
-		}
-	}()
 
 	// чтение следующего сообщения.
 	go func() {
