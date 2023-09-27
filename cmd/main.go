@@ -35,7 +35,7 @@ func main() {
 	//topicErr := "FIO_FAILED"
 	//groupID := "FIO"
 	//
-	//service.Start(brokers, topic, topicErr, groupID, connstr)
+	//service.Start()
 
 	//----------------------------------------------------------------------
 

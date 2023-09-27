@@ -2,9 +2,11 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/zatrasz75/Service/pkg/logger"
 	"github.com/zatrasz75/Service/pkg/storage"
+	"strconv"
 	"time"
 )
 
@@ -64,4 +66,83 @@ func (s *Store) SaveDataToDatabase(d storage.Data) (int, error) {
 	).Scan(&id)
 
 	return id, err
+}
+
+// Select выполняет SQL-запрос для выборки данных из таблицы service_data с фильтрами и пагинацией.
+func (s *Store) Select(genderFilter string, page, pageSize int) ([]storage.UsersData, error) {
+	// Создаем SQL-запрос с учетом фильтра и пагинации.
+	query := "SELECT * FROM service_data WHERE true"
+	if genderFilter != "" {
+		query += fmt.Sprintf(" AND gender = '%s'", genderFilter)
+	}
+	query += fmt.Sprintf(" LIMIT %d OFFSET %d", pageSize, (page-1)*pageSize)
+
+	// Выполняем запрос к базе данных.
+	rows, err := s.db.Query(context.Background(), query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []storage.UsersData
+	for rows.Next() {
+		var data storage.UsersData
+		if err = rows.Scan(&data.ID, &data.Name, &data.Surname, &data.Patronymic, &data.Age, &data.Gender, &data.Nationality); err != nil {
+			return nil, err
+		}
+		result = append(result, data)
+	}
+
+	return result, nil
+}
+
+// DeleteDataByID Создаем SQL-запрос для удаления данных по идентификатору.
+func (s *Store) DeleteDataByID(id int) error {
+	delet := "DELETE FROM service_data WHERE id = $1"
+
+	_, err := s.db.Exec(context.Background(), delet, id)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// UpdateDataByID обновляет данные сущности по ее идентификатору.
+func (s *Store) UpdateDataByID(id int, newData storage.UsersData) error {
+	_, err := s.db.Exec(context.Background(), `
+        UPDATE service_data 
+        SET name = $2, surname = $3, patronymic = $4, age = $5, gender = $6, nationality = $7
+        WHERE id = $1;
+    `,
+		id,
+		newData.Name,
+		newData.Surname,
+		newData.Patronymic,
+		newData.Age,
+		newData.Gender,
+		newData.Nationality,
+	)
+	return err
+}
+
+// PartialUpdateDataByID частично обновляет данные сущности по ее идентификатору.
+func (s *Store) PartialUpdateDataByID(id int, partialData map[string]interface{}) error {
+	// Динамический SQL-запрос на основе частичных данных.
+	query := "UPDATE service_data SET"
+	args := []interface{}{id}
+	argIndex := 2 // Индекс первого аргумента после id.
+
+	for key, value := range partialData {
+		query += " " + key + " = $" + strconv.Itoa(argIndex) + ","
+		args = append(args, value)
+		argIndex++
+	}
+
+	// Удаление последней запятой из запроса.
+	query = query[:len(query)-1]
+
+	query += " WHERE id = $1;"
+	_, err := s.db.Exec(context.Background(), query, args...)
+	return err
 }

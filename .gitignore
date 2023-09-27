@@ -9,7 +9,6 @@
 *.dylib
 
 *.idea
-*.env
 
 app.log
 app.old.log

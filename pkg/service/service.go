@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/segmentio/kafka-go"
+	"github.com/zatrasz75/Service/configs"
 	"github.com/zatrasz75/Service/pkg/logger"
 	"github.com/zatrasz75/Service/pkg/storage"
 	"github.com/zatrasz75/Service/pkg/storage/postgres"
@@ -28,8 +29,9 @@ type Client struct {
 
 // New создаёт и инициализирует клиента Kafka.
 // Функция-конструктор.
-func New(brokers []string, topic string, topicErr string, groupId string) (*Client, error) {
-	if len(brokers) == 0 || topic == "" || groupId == "" || topicErr == "" {
+func New() (*Client, error) {
+	cfg := configs.New()
+	if len(cfg.Kafka.Brokers) == 0 || cfg.Kafka.Topic == "" || cfg.Kafka.GroupID == "" || cfg.Kafka.TopicErr == "" {
 		return nil, errors.New("не указаны параметры подключения к Kafka")
 	}
 
@@ -37,25 +39,25 @@ func New(brokers []string, topic string, topicErr string, groupId string) (*Clie
 
 	// Инициализация компонента получения сообщений.
 	c.Reader = kafka.NewReader(kafka.ReaderConfig{
-		Brokers:  brokers,
-		Topic:    topic,
-		GroupID:  groupId,
+		Brokers:  cfg.Kafka.Brokers,
+		Topic:    cfg.Kafka.Topic,
+		GroupID:  cfg.Kafka.GroupID,
 		MinBytes: 10e1,
 		MaxBytes: 10e6,
 	})
 	// Сохраняем адрес брокера.
-	c.Broker = brokers[0]
+	c.Broker = cfg.Kafka.Brokers[0]
 
 	// Инициализация компонента отправки сообщений в топик FIO.
 	c.Writer = &kafka.Writer{
-		Addr:     kafka.TCP(brokers[0]),
-		Topic:    topic,
+		Addr:     kafka.TCP(cfg.Kafka.Brokers[0]),
+		Topic:    cfg.Kafka.Topic,
 		Balancer: &kafka.LeastBytes{},
 	}
 	// Инициализация компонента отправки сообщений в топик FIO_FAILED.
 	c.ErrorWriter = &kafka.Writer{
-		Addr:     kafka.TCP(brokers[0]),
-		Topic:    topicErr,
+		Addr:     kafka.TCP(cfg.Kafka.Brokers[0]),
+		Topic:    cfg.Kafka.TopicErr,
 		Balancer: &kafka.LeastBytes{},
 	}
 
@@ -212,15 +214,16 @@ func (c *Client) fetchProcessCommit(db storage.Database) error {
 	}
 }
 
-func Start(brokers []string, topic, topicErr, groupID, connstr string) {
+func Start() {
+	cfg := configs.New()
 	// Инициализация клиента Kafka.
-	kfk, err := New(brokers, topic, topicErr, groupID)
+	kfk, err := New()
 	if err != nil {
 		logger.Fatal("не удалось запустить сервис", err)
 	}
 
 	// Инициализация базы данных.
-	db, err := postgres.New(connstr)
+	db, err := postgres.New(cfg.DataBase.ConnStr)
 	if err != nil {
 		logger.Fatal("нет соединения с PostgresSQL", err)
 	}

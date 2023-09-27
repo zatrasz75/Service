@@ -20,7 +20,7 @@ type API struct {
 	port   string      // Порт
 	host   string      // Хост
 	srv    *http.Server
-	db     storage.Database // база данных
+	PG     storage.Database // база данных
 	server *handlers.Server
 }
 
@@ -32,11 +32,11 @@ func (api *API) Router() *mux.Router {
 func New() *API {
 	// Конфигурация
 	cfg := configs.New()
-	db, err := postgres.New(cfg.DataBase.ConnStr)
+	PG, err := postgres.New(cfg.DataBase.ConnStr)
 	if err != nil {
 		logger.Fatal("нет соединения с PostgresSQL", err)
 	}
-	err = db.CreateDataTable()
+	err = PG.CreateDataTable()
 	if err != nil {
 		logger.Fatal("не удалось создать таблицу", err)
 	}
@@ -45,8 +45,8 @@ func New() *API {
 		r:      mux.NewRouter(),
 		host:   cfg.Server.AddrHost,
 		port:   cfg.Server.AddrPort,
-		db:     db,
-		server: &handlers.Server{Db: db},
+		PG:     PG,
+		server: &handlers.Server{PG: PG},
 	}
 	// Регистрируем обработчики API.
 	api.endpoints()
@@ -120,5 +120,9 @@ func shutdownServer(httpServer *API) error {
 
 // Регистрация обработчиков API.
 func (api *API) endpoints() {
-
+	api.r.HandleFunc("/data", api.server.GetData).Methods(http.MethodGet)
+	api.r.HandleFunc("/data", api.server.AddData).Methods(http.MethodPost)
+	api.r.HandleFunc("/data/{id}", api.server.DeleteData).Methods(http.MethodDelete)
+	api.r.HandleFunc("/data/{id}", api.server.UpdateData).Methods(http.MethodPut)
+	api.r.HandleFunc("/data/{id}", api.server.PartialUpdateData).Methods(http.MethodPatch)
 }
